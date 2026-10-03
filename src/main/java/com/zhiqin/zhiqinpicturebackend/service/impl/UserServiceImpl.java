@@ -6,7 +6,6 @@ import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.zhiqin.zhiqinpicturebackend.common.ResultUtils;
 import com.zhiqin.zhiqinpicturebackend.constant.UserConstant;
 import com.zhiqin.zhiqinpicturebackend.domain.dto.UserQueryRequest;
 import com.zhiqin.zhiqinpicturebackend.domain.dto.UserRegisterRequest;
@@ -20,12 +19,10 @@ import com.zhiqin.zhiqinpicturebackend.mapper.UserMapper;
 
 import com.zhiqin.zhiqinpicturebackend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -176,7 +173,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
             if(user == null||user.getId()==null){
                 throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
             }
-            //从数据库查(追求性能直接返回)
+            //从数据库查(追求性能直接返回)肯定
             Long userId = user.getId();
             user=getById(userId);
             if(user==null){
@@ -184,6 +181,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
             }
             return user;
         }
+
+
+        @Override
+        public boolean isAdmin(User user) {
+            return user != null && UserRoleEnum.ADMIN.getValue().equals(user.getUserRole());
+        }
+
     }
 
 

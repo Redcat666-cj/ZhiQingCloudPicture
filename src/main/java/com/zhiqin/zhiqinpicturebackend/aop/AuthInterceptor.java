@@ -25,7 +25,7 @@ public class AuthInterceptor {
     @Resource
     private UserService userService;
     @Around("@annotation(authCheck)")
-    public Object doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {
+    public Object  doInterceptor(ProceedingJoinPoint joinPoint, AuthCheck authCheck) throws Throwable {
 
         String result = authCheck.mustRole();
         RequestAttributes requestAttributes = RequestContextHolder.currentRequestAttributes();

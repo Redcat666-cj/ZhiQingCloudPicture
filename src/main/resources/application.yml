@@ -2,7 +2,15 @@ server:
   port: 8123
   servlet:
     context-path: /api
+  reactive:
+    session:
+      #前端cookie同步reids
+      cookie:
+        max-age: 259200
+
 spring:
+  profiles:
+    active: local
   application:
     name: zhiqin-picture
   datasource:
@@ -10,6 +18,13 @@ spring:
     username: root
     password: "061214"
     url: jdbc:mysql://localhost:3306/zhiqin_picture
+  servlet:
+    multipart:
+      max-file-size: 10MB
+  session:
+    store-type: redis
+    #30天后过期
+    timeout: 259200
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false

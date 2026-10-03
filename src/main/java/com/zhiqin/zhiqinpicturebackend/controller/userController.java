@@ -85,7 +85,7 @@ public class userController {
      * 根据 id 获取用户（仅管理员）
      */
     @GetMapping("/get")
-   // @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<User> getUserById(long id) {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
         User user = userService.getById(id);
@@ -133,7 +133,7 @@ public class userController {
     }
 
     @PostMapping("/list/page/vo")
-   // @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    //@AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     //post接受的参数大小比get大适合复杂查询
     public BaseResponse<Page<UserVO>> listUserPageVo(@RequestBody UserQueryRequest userQueryRequest) {
         if (userQueryRequest == null) {
