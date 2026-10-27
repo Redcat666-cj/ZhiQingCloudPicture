@@ -14,10 +14,17 @@ spring:
   application:
     name: zhiqin-picture
   datasource:
+    # 单库 + MyBatis-Plus 动态表名：picture 逻辑表会被路由到 picture_public / picture_{spaceId}
+    # 分表规则见 com.zhiqin.zhiqinpicturebackend.manager.table 包，建表脚本见 sql/space_table_init.sql
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: "061214"
     url: jdbc:mysql://localhost:3306/zhiqin_picture
+  redis:
+    database: 0
+    host: 127.0.0.1
+    port: 6379
+    timeout: 5000
   servlet:
     multipart:
       max-file-size: 10MB

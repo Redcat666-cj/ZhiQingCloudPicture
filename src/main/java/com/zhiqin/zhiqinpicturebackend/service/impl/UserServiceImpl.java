@@ -17,6 +17,7 @@ import com.zhiqin.zhiqinpicturebackend.exception.BusinessException;
 import com.zhiqin.zhiqinpicturebackend.exception.ErrorCode;
 import com.zhiqin.zhiqinpicturebackend.mapper.UserMapper;
 
+import com.zhiqin.zhiqinpicturebackend.manager.auth.StpKit;
 import com.zhiqin.zhiqinpicturebackend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -114,6 +115,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>  implements U
         }
         //保存用户登录状态
         request.getSession().setAttribute(UserConstant.USER_LOGIN_STATE,user);
+        // 同步建立「空间账号体系」(StpKit.SPACE) 的登录态：
+        // @SaSpaceCheckPermission 校验的是 space 这个 StpLogic，不登录会一直返回 40100「未能读取到有效 token」
+        StpKit.SPACE.login(user.getId());
+        StpKit.SPACE.getSessionByLoginId(user.getId()).set(UserConstant.USER_LOGIN_STATE, user);
         return BeanUtil.copyProperties(user,LoginUserVo.class);
     }
 

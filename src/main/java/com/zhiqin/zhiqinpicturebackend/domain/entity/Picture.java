@@ -27,6 +27,11 @@ import java.util.Date;
         private String url;
 
         /**
+         *  空间id
+         */
+        private Long spaceId;
+
+        /**
          * 缩略图 url
          */
         private String thumbnailUrl;
@@ -121,4 +126,10 @@ import java.util.Date;
          * 审核时间
          */
         private Date reviewTime;
-    }
+
+        /**
+         * 图片主色调
+         */
+        private String picColor;
+
+}

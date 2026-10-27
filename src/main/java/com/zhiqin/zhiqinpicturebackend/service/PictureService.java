@@ -2,17 +2,16 @@ package com.zhiqin.zhiqinpicturebackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.zhiqin.zhiqinpicturebackend.domain.dto.PictureQueryRequest;
-import com.zhiqin.zhiqinpicturebackend.domain.dto.PictureReviewRequest;
-import com.zhiqin.zhiqinpicturebackend.domain.dto.PictureUploadByBatchRequest;
-import com.zhiqin.zhiqinpicturebackend.domain.dto.PictureUploadRequest;
+import com.zhiqin.zhiqinpicturebackend.api.aliyunai.model.CreateOutPaintingTaskResponse;
+import com.zhiqin.zhiqinpicturebackend.domain.dto.*;
 import com.zhiqin.zhiqinpicturebackend.domain.entity.User;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.zhiqin.zhiqinpicturebackend.domain.entity.Picture;
 import com.zhiqin.zhiqinpicturebackend.domain.vo.PictureVO;
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
 * @author 崔健
@@ -21,13 +20,26 @@ import javax.servlet.http.HttpServletRequest;
 */
 public interface PictureService extends IService<Picture> {
 
-    PictureVO uploadPicture(Object file, PictureUploadRequest pictureUploadRequest,User loginUser) throws Exception;
+    PictureVO uploadPicture(Object file, PictureUploadRequest pictureUploadRequest, User loginUser) throws Exception;
 
 
 
     QueryWrapper<Picture> getQueryWrapper(PictureQueryRequest request);
 
+    /**
+     * 按请求分页查询单个空间（request.spaceId 为 null 时查公共图库）的图片。
+     * 空间由动态表名路由到 picture_public / picture_{spaceId}
+     */
+    Page<Picture> pageByRequest(PictureQueryRequest request, Page<Picture> page);
+
+    /**
+     * 跨空间分页查询（把 picture_public 和各空间表的结果合并后再分页），供管理员全局列表使用
+     */
+    Page<Picture> pageAcrossSpaces(PictureQueryRequest request);
+
     PictureVO getPictureVO(Picture picture, HttpServletRequest request);
+
+    List<PictureVO> searchPictureByColor(Long spaceId, String picColor, User loginUser);
 
     Page<PictureVO> getPictureVOPage(Page<Picture> picturePage, HttpServletRequest request);
 
@@ -43,6 +55,8 @@ public interface PictureService extends IService<Picture> {
 
     void fillReviewParams(Picture picture, User loginUser);
 
+    void editPicture(PictureEditRequest pictureEditRequest, HttpServletRequest request) throws Exception;
+
     /**
      * 批量抓取和创建图片
      *
@@ -56,6 +70,15 @@ public interface PictureService extends IService<Picture> {
     );
 
     void delteleObject(Picture oldPicture) throws Exception;
+
+    void checkPictureAuth(User loginUser,Picture picture) throws Exception;
+
+    void deletePicture(User loginUser,Picture picture) throws Exception;
+
+    @Transactional(rollbackFor = Exception.class)
+    void editPictureBatch(PictureEditByBatchRequest pictureEditByBatchRequest, User loginUser);
+
+    CreateOutPaintingTaskResponse createPictureOutPaintingTask(CreatePictureOutPaintingTaskRequest createPictureOutPaintingTaskRequest, User loginUser) throws Exception;
 }
 
 

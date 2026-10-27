@@ -132,6 +132,24 @@ public class userController {
         return ResultUtils.success(true);
     }
 
+    /**
+     * 用户自助更新个人信息（仅允许修改自己的名称和头像）。
+     * 不复用 /update：那是管理员接口可改任意用户，直接放开会越权。
+     * 这里强制取登录态的 id，且只写名称、头像两个字段（updateById 跳过空字段，传哪个改哪个）。
+     */
+    @PostMapping("/update/my")
+    public BaseResponse<Boolean> updateMyUser(@RequestBody UserUpdateRequest userUpdateRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(userUpdateRequest == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        User user = new User();
+        user.setId(loginUser.getId());
+        user.setUserName(userUpdateRequest.getUserName());
+        user.setUserAvatar(userUpdateRequest.getUserAvatar());
+        boolean result = userService.updateById(user);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        return ResultUtils.success(true);
+    }
+
     @PostMapping("/list/page/vo")
     //@AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     //post接受的参数大小比get大适合复杂查询

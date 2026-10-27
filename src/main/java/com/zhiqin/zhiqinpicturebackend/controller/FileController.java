@@ -6,6 +6,7 @@ import com.qcloud.cos.model.GetObjectRequest;
 import com.qcloud.cos.utils.IOUtils;
 import com.zhiqin.zhiqinpicturebackend.common.BaseResponse;
 import com.zhiqin.zhiqinpicturebackend.common.ResultUtils;
+import com.zhiqin.zhiqinpicturebackend.config.CosConfig;
 import com.zhiqin.zhiqinpicturebackend.exception.BusinessException;
 import com.zhiqin.zhiqinpicturebackend.exception.ErrorCode;
 import com.zhiqin.zhiqinpicturebackend.manager.CosManager;
@@ -23,9 +24,11 @@ import java.io.IOException;
 public class FileController {
 
     private final CosManager cosManager;
+    private final CosConfig cosConfig;
 
-    public FileController(CosManager cosManager) {
+    public FileController(CosManager cosManager, CosConfig cosConfig) {
         this.cosManager = cosManager;
+        this.cosConfig = cosConfig;
     }
 
     @PostMapping("/test/upload")
@@ -39,7 +42,8 @@ public class FileController {
             tempFile  = File.createTempFile(filePath, null);
             file.transferTo(tempFile);
             cosManager.putObject(filePath,tempFile);
-            return ResultUtils.success(filePath);
+            // 返回完整访问 URL（原来只返回对象路径，前端无法直接展示）
+            return ResultUtils.success(cosConfig.getHost() + filePath);
         }
         catch (Exception e) {
             log.error("file upload error, filepath = " + filePath, e);

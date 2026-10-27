@@ -82,7 +82,7 @@ public final UploadPictureResult  uploadPicture(Object file,String uploadPathPre
             }
 
             //封装压缩图返回
-            return buildResult(originalFilename,compressCiObject,thunmnailCiObject);
+            return buildResult(originalFilename,compressCiObject,thunmnailCiObject,imageInfo);
         }
 
         // 封装返回结果
@@ -99,7 +99,7 @@ public final UploadPictureResult  uploadPicture(Object file,String uploadPathPre
 
 }
 
-    private UploadPictureResult buildResult(String originalFilename, CIObject compressCiObject,CIObject thunmnailCiObject) {
+    private UploadPictureResult buildResult(String originalFilename, CIObject compressCiObject,CIObject thunmnailCiObject,ImageInfo imageInfo) {
     UploadPictureResult uploadPictureResult = new UploadPictureResult();
     Integer width = compressCiObject.getWidth();
     Integer height = compressCiObject.getHeight();
@@ -112,6 +112,7 @@ public final UploadPictureResult  uploadPicture(Object file,String uploadPathPre
     uploadPictureResult.setPicSize(compressCiObject.getSize().longValue());
     uploadPictureResult.setUrl(cosConfig.getHost()+"/"+compressCiObject.getKey());
     uploadPictureResult.setThumbnailUrl(cosConfig.getHost()+"/"+thunmnailCiObject.getKey());
+    uploadPictureResult.setPicColor(imageInfo.getAve());
     return uploadPictureResult;
     }
 
@@ -129,6 +130,7 @@ public final UploadPictureResult  uploadPicture(Object file,String uploadPathPre
         uploadPictureResult.setPicFormat(imageInfo.getFormat());
         uploadPictureResult.setPicSize(FileUtil.size(tempFile));
         uploadPictureResult.setUrl(cosConfig.getHost() + "/" + uploadPath);
+        uploadPictureResult.setPicColor(imageInfo.getAve());
         return uploadPictureResult;
     }
 
