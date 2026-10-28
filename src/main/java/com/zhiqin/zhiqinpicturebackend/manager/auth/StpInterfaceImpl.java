@@ -112,10 +112,9 @@ public class StpInterfaceImpl implements StpInterface {
             if (pictureId == null) {
                 return ADMIN_PERMISSIONS;
             }
-            Picture picture = pictureService.lambdaQuery()
-                    .eq(Picture::getId, pictureId)
-                    .select(Picture::getId, Picture::getSpaceId, Picture::getUserId)
-                    .one();
+            //动态分表：这里只能拿 pictureId，必须用 getById（内部会反查图片所在的空间表），
+            //不能写 lambdaQuery().eq(id)，否则没有分片上下文，会默认查 picture_public 而查不到空间图片
+            Picture picture = pictureService.getById(pictureId);
             if (picture == null) {
                 throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "未找到图片信息");
             }

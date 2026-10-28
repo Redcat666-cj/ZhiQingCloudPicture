@@ -60,7 +60,7 @@ public class AliYunAiApi {
         JSONObject input = new JSONObject();
         input.set("messages", messages);
         JSONObject parameters = new JSONObject();
-        parameters.set("size", buildOutputSize(width, height, xScale, yScale));
+        parameters.set("size", OutPaintingSizeCalculator.buildSize(width, height, xScale, yScale));
         parameters.set("n", 1);
         parameters.set("watermark", false);
         JSONObject body = new JSONObject();
@@ -139,35 +139,18 @@ public class AliYunAiApi {
         }
     }
 
-    private String buildOutputSize(Integer width, Integer height, float xScale, float yScale) {
-        double targetW = (width == null || width < 1 ? 1024 : width) * xScale;
-        double targetH = (height == null || height < 1 ? 1024 : height) * yScale;
-        double aspect = targetW / targetH;
-        if (aspect > 8) {
-            targetW = targetH * 8;
-        } else if (aspect < 0.125) {
-            targetH = targetW * 8;
-        }
-        double pixels = targetW * targetH;
-        double maxPixels = 2048d * 2048d;
-        double minPixels = 768d * 768d;
-        if (pixels > maxPixels) {
-            double scale = Math.sqrt(maxPixels / pixels);
-            targetW *= scale;
-            targetH *= scale;
-        } else if (pixels < minPixels) {
-            double scale = Math.sqrt(minPixels / pixels);
-            targetW *= scale;
-            targetH *= scale;
-        }
-        return Math.max(1, (int) Math.round(targetW)) + "*" + Math.max(1, (int) Math.round(targetH));
-    }
-
     private String readErrorMessage(String responseBody) {
         if (StringUtils.isBlank(responseBody)) {
             return "Ai扩图失败";
         }
         String message = JSONUtil.parseObj(responseBody).getStr("message");
-        return StringUtils.isNotBlank(message) ? message : "Ai扩图失败";
+        if (StringUtils.isBlank(message)) {
+            return "Ai扩图失败";
+        }
+        // 万相 i2i 的像素上限报错，翻译成人话（正常不会触发，尺寸已由 OutPaintingSizeCalculator 收敛）
+        if (message.contains("exceeds the limit for i2i") || message.contains("Total pixels")) {
+            return "扩图后的像素超过接口上限（2048×2048 = 4194304），请换一张更小的图片，或把扩图倍数调小";
+        }
+        return message;
     }
 }
