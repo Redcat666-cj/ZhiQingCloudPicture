@@ -2,10 +2,9 @@ server:
   port: 8123
   servlet:
     context-path: /api
-  reactive:
     session:
-      #前端cookie同步reids
       cookie:
+        #前端cookie同步redis（30天）
         max-age: 259200
 
 spring:
@@ -15,23 +14,32 @@ spring:
     name: zhiqin-picture
   datasource:
     # 单库 + MyBatis-Plus 动态表名：picture 逻辑表会被路由到 picture_public / picture_{spaceId}
-    # 分表规则见 com.zhiqin.zhiqinpicturebackend.manager.table 包，建表脚本见 sql/space_table_init.sql
+    # 分表规则见 picture/infrastructure/sharding 包，建表脚本见 sql/space_table_init.sql
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: "061214"
     url: jdbc:mysql://localhost:3306/zhiqin_picture
-  redis:
-    database: 0
-    host: 127.0.0.1
-    port: 6379
-    timeout: 5000
+  data:
+    redis:
+      database: 0
+      host: 127.0.0.1
+      port: 6379
+      timeout: 5000
   servlet:
     multipart:
       max-file-size: 10MB
   session:
-    store-type: redis
+    # Spring Session 3 按 classpath 自动装配 Redis 存储，store-type 属性已移除
     #30天后过期
     timeout: 259200
+  ai:
+    openai:
+      # 阿里云百炼 OpenAI 兼容端点，api-key 复用扩图使用的 aliYunAi.apikey
+      base-url: https://dashscope.aliyuncs.com/compatible-mode
+      api-key: ${aliYunAi.apikey}
+      chat:
+        options:
+          model: qwen-plus
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
@@ -42,14 +50,10 @@ mybatis-plus:
       logic-delete-field: isDelete # 全局逻辑删除的实体字段名
       logic-delete-value: 1 # 逻辑已删除值（默认为 1）
       logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
-# 接口文档配置
+# 接口文档配置（knife4j openapi3 底层为 springdoc，扫描新 DDD 包）
+springdoc:
+  group-configs:
+    - group: default
+      packages-to-scan: com.zhiqin.zhiqinpicturebackend
 knife4j:
   enable: true
-  openapi:
-    title: "接口文档"
-    version: 1.0
-    group:
-      default:
-        api-rule: package
-        api-rule-resources:
-          - com.zhiqin.zhiqinpicturebackend.controller
