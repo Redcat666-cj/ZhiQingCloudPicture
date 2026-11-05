@@ -65,4 +65,19 @@ public class PicturePO implements Serializable {
     private Date reviewTime;
 
     private String picColor;
+
+    /**
+     * 浏览数
+     */
+    private Long reviews;
+
+    /**
+     * 最近一次浏览时间
+     */
+    private Date lastViewTime;
+
+    /**
+     * 是否已降沉至低频存储：0-否 1-是
+     */
+    private Integer demoted;
 }

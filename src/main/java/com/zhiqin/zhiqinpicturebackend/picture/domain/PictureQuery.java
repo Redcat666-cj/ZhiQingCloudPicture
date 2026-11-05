@@ -66,6 +66,11 @@ public class PictureQuery {
      */
     private boolean crossSpaces;
 
+    /**
+     * 冷数据扫描条件：只查最近浏览时间早于该时间点的图片（配合仓储层 demoted=0 条件）
+     */
+    private Date lastViewBefore;
+
     private String sortField;
 
     private String sortOrder = "descend";

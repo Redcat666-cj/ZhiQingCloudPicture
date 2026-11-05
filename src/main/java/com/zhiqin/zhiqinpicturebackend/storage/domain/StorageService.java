@@ -22,4 +22,14 @@ public interface StorageService {
      * 删除对象（传 url 或 key 都可以，由实现负责解析）
      */
     void deleteObject(String url) throws Exception;
+
+    /**
+     * 冷数据降沉：把对象存储类降为低频存储（访问变慢/取回变贵，存储费变低）
+     */
+    void demoteToLowFrequency(String url) throws Exception;
+
+    /**
+     * 回温：把低频存储的对象恢复为标准存储
+     */
+    void restoreToStandard(String url) throws Exception;
 }

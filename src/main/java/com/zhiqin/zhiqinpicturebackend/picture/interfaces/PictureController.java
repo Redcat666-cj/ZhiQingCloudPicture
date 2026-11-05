@@ -229,6 +229,8 @@ public class PictureController {
         User LoginUser = UserAppService.getLoginUser(request);
         space = SpaceAppService.getById(spaceId);
         List<String> permissionList = SpacePermissionAppService.getPermissionList(space, LoginUser);
+        // 浏览计数 +1，降沉图自动回温（失败不影响返回）
+        PictureAppService.onPictureViewed(picture);
         PictureVO pictureVO = PictureAppService.getPictureVO(picture, request);
         pictureVO.setPermissionList(permissionList);
         // 获取封装类

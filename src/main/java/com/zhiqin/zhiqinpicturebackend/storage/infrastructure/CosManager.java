@@ -2,8 +2,8 @@ package com.zhiqin.zhiqinpicturebackend.storage.infrastructure;
 import cn.hutool.core.io.FileUtil;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.model.*;
-
 import com.qcloud.cos.model.ciModel.persistence.PicOperations;
+import com.qcloud.cos.region.Region;
 import com.zhiqin.zhiqinpicturebackend.storage.infrastructure.CosConfig;
 import org.springframework.stereotype.Component;
 
@@ -82,5 +82,25 @@ public class CosManager {
     public void deleteObject(String key) throws Exception {
         DeleteObjectRequest deleteObjectRequest = new DeleteObjectRequest(cosConfig.getBucket(), key);
         cosClient.deleteObject(deleteObjectRequest);
+    }
+
+    /**
+     * 变更对象存储类（冷数据降沉 / 回温）。
+     * COS 的标准做法是"自拷贝"：同桶同 key 拷贝一次并指定目标存储类，
+     * 元数据不变、访问地址不变，仅存储层级变化。
+     */
+    public void changeObjectStorageClass(String key, StorageClass storageClass) {
+        CopyObjectRequest request = new CopyObjectRequest(
+                new Region(cosConfig.getRegion()), cosConfig.getBucket(), key, cosConfig.getBucket(), key);
+        request.setStorageClass(storageClass);
+        cosClient.copyObject(request);
+    }
+
+    /**
+     * 查询对象当前存储类。源与目标相同时 COS 会拒绝自拷贝（400 UnexpectedContent），
+     * 因此变更前先查一次做幂等保护。
+     */
+    public StorageClass getObjectStorageClass(String key) {
+        return cosClient.getObjectMetadata(cosConfig.getBucket(), key).getStorageClassEnum();
     }
 }

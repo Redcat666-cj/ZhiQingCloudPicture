@@ -2,6 +2,7 @@ package com.zhiqin.zhiqinpicturebackend.picture.infrastructure;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhiqin.zhiqinpicturebackend.picture.domain.Picture;
 import com.zhiqin.zhiqinpicturebackend.picture.domain.PictureQuery;
@@ -15,7 +16,9 @@ import org.springframework.stereotype.Repository;
 import jakarta.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -104,6 +107,48 @@ public class PictureRepositoryImpl implements PictureRepository {
                         .map(this::toDomain).collect(Collectors.toList()));
     }
 
+    // ==================== 浏览数与冷热分层 ====================
+
+    @Override
+    public void incrementReviews(Long id) {
+        Long spaceId = pictureTableRouter.locateSpaceId(id);
+        pictureTableRouter.inSpace(spaceId, () -> {
+            // SQL 层原子自增，避免"查出来加一再写回"的读-改-写竞态
+            UpdateWrapper<PicturePO> wrapper = new UpdateWrapper<>();
+            wrapper.eq("id", id)
+                    .setSql("reviews = reviews + 1")
+                    .set("lastViewTime", new Date());
+            PictureMapper.update(null, wrapper);
+            return null;
+        });
+    }
+
+    @Override
+    public void markDemoted(Long id, boolean demoted) {
+        Long spaceId = pictureTableRouter.locateSpaceId(id);
+        pictureTableRouter.inSpace(spaceId, () -> {
+            UpdateWrapper<PicturePO> wrapper = new UpdateWrapper<>();
+            wrapper.eq("id", id).set("demoted", demoted ? 1 : 0);
+            PictureMapper.update(null, wrapper);
+            return null;
+        });
+    }
+
+    @Override
+    public List<Picture> listColdPictures(Date threshold, Long spaceId) {
+        return pictureTableRouter.inSpace(spaceId, () -> {
+            PictureQuery query = new PictureQuery();
+            query.setLastViewBefore(threshold);
+            if (spaceId == null) {
+                query.setNullSpaceId(true);
+            } else {
+                query.setSpaceId(spaceId);
+            }
+            return PictureMapper.selectList(buildWrapper(query)).stream()
+                    .map(this::toDomain).collect(Collectors.toList());
+        });
+    }
+
     // ==================== 跨空间合并分页 ====================
 
     private PageResult<Picture> pageAcrossSpaces(PictureQuery query) {
@@ -123,7 +168,8 @@ public class PictureRepositoryImpl implements PictureRepository {
     private Comparator<Picture> buildComparator(String sortField, String sortOrder) {
         boolean ascend = "ascend".equalsIgnoreCase(sortOrder);
         Comparator<Picture> comparator;
-        String field = StrUtil.blankToDefault(sortField, "id");
+        // 跨表归并的默认排序与单表保持一致：按浏览数热度，id 兜底
+        String field = StrUtil.blankToDefault(sortField, "reviews");
         switch (field) {
             case "createTime":
                 comparator = byAsc(Picture::getCreateTime);
@@ -140,9 +186,14 @@ public class PictureRepositoryImpl implements PictureRepository {
             case "picSize":
                 comparator = byAsc(Picture::getPicSize);
                 break;
+            case "reviews":
+                comparator = byAsc(Picture::getReviews).thenComparing(byAsc(Picture::getId));
+                break;
             case "id":
-            default:
                 comparator = byAsc(Picture::getId);
+                break;
+            default:
+                comparator = byAsc(Picture::getReviews).thenComparing(byAsc(Picture::getId));
                 break;
         }
         return ascend ? comparator : comparator.reversed();
@@ -182,10 +233,34 @@ public class PictureRepositoryImpl implements PictureRepository {
                 wrapper.like("tags", "\"" + tag + "\"");
             }
         }
-        if (StrUtil.isNotEmpty(query.getSortField())) {
-            wrapper.orderBy(true, query.isAscend(), query.getSortField());
+        // 冷数据扫描条件：未降沉 + 最近浏览早于阈值（含从未浏览过的 NULL）
+        if (query.getLastViewBefore() != null) {
+            wrapper.eq("demoted", 0)
+                    .and(qw -> qw.lt("lastViewTime", query.getLastViewBefore())
+                            .or().isNull("lastViewTime"));
         }
+        applySort(wrapper, query.getSortField(), query.isAscend());
         return wrapper;
+    }
+
+    /**
+     * 排序字段白名单：sortField 来自前端请求，直接拼进 orderBy 是 SQL 注入点。
+     * 不在白名单内（含空）时走默认热度排序：reviews 降序，id 降序兜底保证稳定。
+     */
+    private static final Set<String> SORTABLE_FIELDS = Set.of(
+            "reviews", "createTime", "editTime", "updateTime", "name", "picSize", "picWidth", "picHeight", "id");
+
+    private void applySort(QueryWrapper<PicturePO> wrapper, String sortField, boolean ascend) {
+        if (StrUtil.isNotBlank(sortField) && SORTABLE_FIELDS.contains(sortField)) {
+            wrapper.orderBy(true, ascend, sortField);
+            if (!"id".equals(sortField)) {
+                wrapper.orderByDesc("id");
+            }
+            return;
+        }
+        // 默认：按浏览数热度排序
+        wrapper.orderByDesc("reviews");
+        wrapper.orderByDesc("id");
     }
 
     private Picture toDomain(PicturePO po) {

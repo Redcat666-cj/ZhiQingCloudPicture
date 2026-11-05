@@ -2,6 +2,7 @@ package com.zhiqin.zhiqinpicturebackend.picture.domain;
 
 import com.zhiqin.zhiqinpicturebackend.shared.domain.PageResult;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -32,4 +33,21 @@ public interface PictureRepository {
      * 查某空间下的全部图片（空间分析用，量小）
      */
     List<Picture> listBySpace(Long spaceId);
+
+    /**
+     * 浏览数 +1 并刷新最近浏览时间（详情页每打开一次调用）。
+     * SQL 层原子自增，避免读-改-写竞态。
+     */
+    void incrementReviews(Long id);
+
+    /**
+     * 标记图片的降沉状态（true=已降至低频存储，false=已恢复标准存储）
+     */
+    void markDemoted(Long id, boolean demoted);
+
+    /**
+     * 冷数据扫描：某张分表（spaceId 为 null 表示公共表）里
+     * 最近浏览时间早于 threshold、且尚未降沉的图片。
+     */
+    List<Picture> listColdPictures(Date threshold, Long spaceId);
 }

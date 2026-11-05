@@ -14,10 +14,15 @@ import org.jsoup.select.Elements;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Bing 图片抓取器
@@ -34,6 +39,7 @@ public class BingImageFetcher {
      * 根据搜索词抓取 Bing 图片。
      * 每张图片同时返回原图地址 murl 与 Bing 缩略图地址 turl，
      * 用于原图因防盗链下载失败时回退到缩略图。
+     * 同一次抓取内按规范化 URL 去重（Bing 单页结果常含重复图）。
      *
      * @param searchText 搜索词
      * @param count      抓取数量
@@ -44,17 +50,67 @@ public class BingImageFetcher {
         Document document = fetchHtml(url);
         Elements imageElements = document.select("a.iusc");
         List<BingImage> images = new ArrayList<>();
+        Set<String> seenUrls = new HashSet<>();
         for (Element element : imageElements) {
             if (images.size() >= count) {
                 break;
             }
             BingImage image = parseImage(element);
-            if (image != null) {
-                images.add(image);
+            if (image == null) {
+                continue;
             }
+            String normalized = normalizeUrl(image.getMurl());
+            if (normalized == null || !seenUrls.add(normalized)) {
+                continue;
+            }
+            images.add(image);
         }
         return images;
     }
+
+    /**
+     * URL 规范化：去掉协议差异与常见跟踪参数，降低“同一张图不同参数”造成的漏判。
+     * 无法解析的 URL 返回 null（按无效处理，交由上层回退 turl）。
+     */
+    private String normalizeUrl(String rawUrl) {
+        if (StrUtil.isBlank(rawUrl)) {
+            return null;
+        }
+        try {
+            URI uri = new URI(rawUrl.trim());
+            String scheme = uri.getScheme() == null ? "http" : uri.getScheme().toLowerCase();
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+            if (host.isEmpty()) {
+                return null;
+            }
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            // 剔除跟踪/尺寸类参数，只保留可能影响内容的参数
+            StringBuilder query = new StringBuilder();
+            if (uri.getRawQuery() != null) {
+                String[] pairs = uri.getRawQuery().split("&");
+                Arrays.sort(pairs);
+                for (String pair : pairs) {
+                    String key = pair.split("=")[0].toLowerCase();
+                    if (IGNORED_QUERY_KEYS.contains(key)) {
+                        continue;
+                    }
+                    if (!query.isEmpty()) {
+                        query.append('&');
+                    }
+                    query.append(pair);
+                }
+            }
+            String normalized = scheme + "://" + host + path + (query.isEmpty() ? "" : "?" + query);
+            return normalized;
+        } catch (URISyntaxException e) {
+            return null;
+        }
+    }
+
+    /** URL 中不影响图片内容的参数，规范化时剔除 */
+    private static final Set<String> IGNORED_QUERY_KEYS = Set.of(
+            "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+            "ref", "referer", "from", "w", "h", "width", "height", "q", "size");
 
     /**
      * 构建请求地址

@@ -84,6 +84,13 @@ public interface PictureAppService {
     void editPictureBatch(PictureEditByBatchRequest pictureEditByBatchRequest, User loginUser);
 
     CreateOutPaintingTaskResponse createPictureOutPaintingTask(CreatePictureOutPaintingTaskRequest createPictureOutPaintingTaskRequest, User loginUser) throws Exception;
+
+    /**
+     * 图片被浏览（详情页打开）：浏览数 +1、刷新最近浏览时间；
+     * 若该图已降沉至低频存储则自动回温为标准存储。
+     * 失败只记日志，不影响浏览主流程。
+     */
+    void onPictureViewed(Picture picture);
 }
 
 

@@ -35,6 +35,9 @@ create table if not exists picture
     picHeight    int                                null comment '图片高度',
     picScale     double                             null comment '图片宽高比例',
     picFormat    varchar(32)                        null comment '图片格式',
+    reviews      bigint   default 0                 not null comment '浏览数',
+    lastViewTime datetime                           null comment '最近一次浏览时间（reviews 最后一次变化）',
+    demoted      tinyint  default 0                 not null comment '是否已降沉至低频存储 0-否 1-是',
     userId       bigint                             not null comment '创建用户 id',
     createTime   datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     editTime     datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
@@ -44,7 +47,8 @@ create table if not exists picture
     INDEX idx_introduction (introduction), -- 用于模糊搜索图片简介
     INDEX idx_category (category),         -- 提升基于分类的查询性能
     INDEX idx_tags (tags),                 -- 提升基于标签的查询性能
-    INDEX idx_userId (userId)              -- 提升基于用户 ID 的查询性能
+    INDEX idx_userId (userId),             -- 提升基于用户 ID 的查询性能
+    INDEX idx_lastViewTime (lastViewTime)  -- 提升冷数据降沉扫描的性能
 ) comment '图片' collate = utf8mb4_unicode_ci;
 
 ALTER TABLE picture

@@ -112,6 +112,21 @@ public class PictureVO implements Serializable {
     private String picColor;
 
     /**
+     * 浏览数
+     */
+    private Long reviews;
+
+    /**
+     * 最近一次浏览时间（冷数据沉降判断依据）
+     */
+    private Date lastViewTime;
+
+    /**
+     * 是否已降沉至低频存储：0-否 1-是
+     */
+    private Integer demoted;
+
+    /**
      * 权限列表
      */
     private List<String> permissionList = new ArrayList<>();

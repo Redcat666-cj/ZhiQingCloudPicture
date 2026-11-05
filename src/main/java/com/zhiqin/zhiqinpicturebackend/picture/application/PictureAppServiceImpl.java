@@ -40,6 +40,8 @@ import com.zhiqin.zhiqinpicturebackend.space.application.SpaceAppService;
 import com.zhiqin.zhiqinpicturebackend.identity.application.UserAppService;
 import com.zhiqin.zhiqinpicturebackend.picture.domain.ColorSimilarUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.jsoup.internal.StringUtil;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.BeanUtils;
@@ -86,6 +88,20 @@ public class PictureAppServiceImpl implements PictureAppService {
 
     @Resource
     private PictureTableRouter pictureTableRouter;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    /**
+     * 批量抓取图片去重：
+     * - URL 索引（抓取地址的 MD5）：拦住"同地址再次抓取"（跨批次、同词重抓）
+     * - 内容指纹索引（图片文件的 MD5）：拦住"不同地址、同一张图"（murl 失败回退 turl、
+     *   不同搜索词命中同一图、Bing 换 CDN 域名等）
+     * Redis Set 是全局的（picture 表按空间分表，没有全局唯一索引可用），带过期防膨胀。
+     */
+    private static final String BATCH_URL_DEDUP_KEY = "picture:batch:url:";
+    private static final String BATCH_MD5_DEDUP_KEY = "picture:batch:md5:";
+    private static final long DEDUP_KEY_TTL_DAYS = 30;
 
 
     @Override
@@ -560,23 +576,132 @@ public class PictureAppServiceImpl implements PictureAppService {
             namePrefix = searchText;
         }
 
-        // 抓取 Bing 图片地址
+        // 抓取 Bing 图片地址（fetcher 内部已做单页 URL 去重）
         List<BingImageFetcher.BingImage> images = bingImageFetcher.fetchImages(searchText, count);
 
-        // 逐条上传入库，单张失败不影响整体；原图失败回退到 Bing 缩略图
+        // 逐条上传入库，单张失败不影响整体；原图失败回退到 Bing 缩略图。
+        // 去重三层：地址已抓过（Redis URL 索引）→ 跳过；
+        //          内容已存在（下载后 MD5 查 Redis 指纹索引）→ 跳过并不再回退 turl；
+        //          上传成功 → 登记地址与内容指纹，供后续批次判重。
         int successCount = 0;
         for (BingImageFetcher.BingImage image : images) {
+            if (isDuplicateUrl(image.getMurl())) {
+                continue;
+            }
             PictureUploadRequest uploadRequest = new PictureUploadRequest();
             uploadRequest.setPicName(String.format("%s_%d", namePrefix, successCount + 1));
-            boolean uploaded = tryUpload(image.getMurl(), uploadRequest, loginUser);
-            if (!uploaded) {
-                uploaded = tryUpload(image.getTurl(), uploadRequest, loginUser);
+            UploadOutcome outcome = tryUploadWithDedup(image.getMurl(), uploadRequest, loginUser);
+            if (outcome == UploadOutcome.DUPLICATE) {
+                // 内容已存在：同一张图的缩略图也是重复内容，没必要再试 turl
+                continue;
             }
-            if (uploaded) {
+            if (outcome == UploadOutcome.FAILED && StrUtil.isNotBlank(image.getTurl())
+                    && !isDuplicateUrl(image.getTurl())) {
+                outcome = tryUploadWithDedup(image.getTurl(), uploadRequest, loginUser);
+            }
+            if (outcome == UploadOutcome.SUCCESS) {
                 successCount++;
             }
         }
         return successCount;
+    }
+
+    /** 单张抓取上传的三种结局 */
+    private enum UploadOutcome { SUCCESS, FAILED, DUPLICATE }
+
+    /**
+     * 该抓取地址是否已成功入库过（跨批次判重）。
+     */
+    private boolean isDuplicateUrl(String url) {
+        if (StrUtil.isBlank(url)) {
+            return true;
+        }
+        String urlHash = DigestUtils.md5Hex(url.trim());
+        return Boolean.TRUE.equals(stringRedisTemplate.opsForSet().isMember(BATCH_URL_DEDUP_KEY, urlHash));
+    }
+
+    /**
+     * 上传并做内容级判重：下载图片算 MD5，命中指纹索引直接判定重复（文件不落 COS）。
+     * 上传成功后登记地址与内容指纹；上传失败则回滚指纹，避免下次同图被误判为重复。
+     */
+    private UploadOutcome tryUploadWithDedup(String url, PictureUploadRequest uploadRequest, User loginUser) {
+        if (StrUtil.isBlank(url)) {
+            return UploadOutcome.FAILED;
+        }
+        String urlHash = DigestUtils.md5Hex(url.trim());
+        String md5 = null;
+        try {
+            byte[] bytes = downloadImage(url);
+            if (bytes == null || bytes.length == 0) {
+                return UploadOutcome.FAILED;
+            }
+            md5 = DigestUtils.md5Hex(bytes);
+            Boolean existed = stringRedisTemplate.opsForSet().isMember(BATCH_MD5_DEDUP_KEY, md5);
+            if (Boolean.TRUE.equals(existed)) {
+                log.info("批量抓取命中内容指纹，跳过：url={}", url);
+                return UploadOutcome.DUPLICATE;
+            }
+            // 竞态说明：两个批次并发抓到同一张图可能同时走到这里（都查不到指纹、都上传）。
+            // SADD 是原子的：后写者返回 0，以此做“先到先得”，后到的一张按重复处理。
+            Long first = stringRedisTemplate.opsForSet().add(BATCH_MD5_DEDUP_KEY, md5);
+            if (first != null && first == 0) {
+                return UploadOutcome.DUPLICATE;
+            }
+            // 内容已在内存，直接走字节上传模板（避免 URL 模板再下载一次）
+            PictureVO uploaded = uploadPicture(bytes, uploadRequest, loginUser);
+            if (uploaded == null) {
+                return UploadOutcome.FAILED;
+            }
+            stringRedisTemplate.opsForSet().add(BATCH_URL_DEDUP_KEY, urlHash);
+            expireDedupKeysIfNeeded();
+            return UploadOutcome.SUCCESS;
+        } catch (Exception e) {
+            log.warn("图片抓取上传失败，url = {}", url, e);
+            // 上传失败要撤销指纹登记，否则这张图永远进不来
+            if (md5 != null) {
+                stringRedisTemplate.opsForSet().remove(BATCH_MD5_DEDUP_KEY, md5);
+            }
+            return UploadOutcome.FAILED;
+        }
+    }
+
+    /** 下载图片的浏览器伪装头：多数图源有防盗链，裸请求会 403 */
+    private static final String CRAWL_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+    /**
+     * 下载图片到内存（批量抓取场景图片不大；超大图会走异常路径按失败处理）。
+     * 带 UA 与 Referer 规避防盗链，与 UrlPictureUpload 的下载行为保持一致。
+     */
+    private byte[] downloadImage(String url) {
+        cn.hutool.http.HttpResponse response = null;
+        try {
+            response = cn.hutool.http.HttpRequest.get(url)
+                    .header("User-Agent", CRAWL_USER_AGENT)
+                    .header("Referer", url)
+                    .timeout(15000)
+                    .execute();
+            if (response.getStatus() != cn.hutool.http.HttpStatus.HTTP_OK) {
+                log.warn("下载图片失败 HTTP {}：url={}", response.getStatus(), url);
+                return null;
+            }
+            return response.bodyBytes();
+        } catch (Exception e) {
+            log.warn("下载图片失败：url={}", url);
+            return null;
+        } finally {
+            if (response != null) {
+                response.close();
+            }
+        }
+    }
+
+    /**
+     * 去重索引设置过期，避免无限膨胀（每次登记后顺手刷新，整 key 30 天）。
+     */
+    private void expireDedupKeysIfNeeded() {
+        stringRedisTemplate.expire(BATCH_URL_DEDUP_KEY, java.time.Duration.ofDays(DEDUP_KEY_TTL_DAYS));
+        stringRedisTemplate.expire(BATCH_MD5_DEDUP_KEY, java.time.Duration.ofDays(DEDUP_KEY_TTL_DAYS));
     }
 
 
@@ -688,26 +813,30 @@ public class PictureAppServiceImpl implements PictureAppService {
     }
 
 
-
     /**
-     * 尝试上传单张图片，成功返回 true
+     * 图片被浏览：浏览数原子 +1 并刷新最近浏览时间；
+     * 已降沉的图重新有人看时自动回温为标准存储（低频取回更贵更慢，热了就该回来）。
+     * 任何失败只记日志，不影响浏览主流程。
      */
-    private boolean tryUpload(String url, PictureUploadRequest uploadRequest, User loginUser) {
-        if (StrUtil.isBlank(url)) {
-            return false;
+    @Override
+    public void onPictureViewed(Picture picture) {
+        if (picture == null || picture.getId() == null) {
+            return;
         }
         try {
-            uploadPicture(url, uploadRequest, loginUser);
-            return true;
+            pictureRepository.incrementReviews(picture.getId());
+            if (picture.isDemoted()) {
+                storageService.restoreToStandard(picture.getUrl());
+                if (StrUtil.isNotBlank(picture.getThumbnailUrl())) {
+                    storageService.restoreToStandard(picture.getThumbnailUrl());
+                }
+                pictureRepository.markDemoted(picture.getId(), false);
+                log.info("降沉图片被浏览，已恢复标准存储：pictureId={} url={}", picture.getId(), picture.getUrl());
+            }
         } catch (Exception e) {
-            log.warn("图片抓取上传失败，url = {}", url, e);
-            return false;
+            log.warn("浏览计数/回温失败，pictureId={}", picture.getId(), e);
         }
-
     }
-
-
-
 }
 
 

@@ -80,6 +80,28 @@ public class Picture implements Serializable {
     private String picColor;
 
     /**
+     * 浏览数（详情页每打开一次 +1）
+     */
+    private Long reviews;
+
+    /**
+     * 最近一次浏览时间（reviews 最后一次变化的时间），冷数据降沉的判断依据
+     */
+    private Date lastViewTime;
+
+    /**
+     * 是否已降沉至低频存储：0-否 1-是
+     */
+    private Integer demoted;
+
+    /**
+     * 是否已降沉至低频存储
+     */
+    public boolean isDemoted() {
+        return this.demoted != null && this.demoted == 1;
+    }
+
+    /**
      * 是否公共图库图片
      */
     public boolean isPublic() {

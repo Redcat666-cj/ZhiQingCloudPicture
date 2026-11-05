@@ -23,7 +23,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import jakarta.annotation.Resource;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 空间应用服务：空间生命周期的用例编排。
@@ -54,7 +53,30 @@ public class SpaceAppService {
     @Resource
     private TransactionTemplate transactionTemplate;
 
-    private final ConcurrentHashMap<Long, Object> lockMap = new ConcurrentHashMap<>();
+    /**
+     * 创建空间按用户加锁的锁条带（固定数量）。
+     *
+     * <p>不用 {@code String.intern()}：常量池是 JVM 全局共享的，任何代码 intern 出相同字符串都会和它互斥，
+     * 锁的所有权不清晰；也不用 {@code ConcurrentHashMap} 做按 userId 的锁表——锁表若在临界区内移除条目，
+     * 后来者会 new 出新锁对象，同一用户两把锁并行，互斥失效（本方法早期版本的真实缺陷）。
+     * 条带数固定，同一 userId 永远落在同一把锁上；不同 userId 偶尔共享一把锁只是多余串行，不影响正确性。</p>
+     */
+    private static final int LOCK_STRIPE_COUNT = 256;
+
+    private final Object[] lockStripes = createLockStripes();
+
+    private static Object[] createLockStripes() {
+        Object[] stripes = new Object[LOCK_STRIPE_COUNT];
+        for (int i = 0; i < stripes.length; i++) {
+            stripes[i] = new Object();
+        }
+        return stripes;
+    }
+
+    private Object lockOf(Long userId) {
+        // 位与取模恒为非负，Long.hashCode 让相邻雪花 id 摊得更开
+        return lockStripes[Long.hashCode(userId) & (LOCK_STRIPE_COUNT - 1)];
+    }
 
     /**
      * 创建空间
@@ -76,23 +98,18 @@ public class SpaceAppService {
         if (SpaceLevelEnum.COMMON.getValue() != space.getSpaceLevel() && !userAppService.isAdmin(loginUser)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限创建指定级别的空间");
         }
-        Object lock = lockMap.computeIfAbsent(userId, key -> new Object());
-        synchronized (lock) {
+        synchronized (lockOf(userId)) {
             Long spaceId = transactionTemplate.execute(status -> {
                 boolean exists = spaceRepository.existsByUserAndType(userId, space.getSpaceType());
                 ThrowUtils.throwIf(exists, ErrorCode.OPERATION_ERROR, "每个用户最多只能创建一个空间");
-                try {
-                    spaceRepository.save(space);
-                    // 团队空间：创建者默认是空间管理员，否则建完自己没有成员管理权限
-                    if (space.isTeam()) {
-                        SpaceUser creator = new SpaceUser();
-                        creator.setSpaceId(space.getId());
-                        creator.setUserId(userId);
-                        creator.setSpaceRole(SpaceRoleEnum.ADMIN.getValue());
-                        spaceMemberRepository.save(creator);
-                    }
-                } finally {
-                    lockMap.remove(userId);
+                spaceRepository.save(space);
+                // 团队空间：创建者默认是空间管理员，否则建完自己没有成员管理权限
+                if (space.isTeam()) {
+                    SpaceUser creator = new SpaceUser();
+                    creator.setSpaceId(space.getId());
+                    creator.setUserId(userId);
+                    creator.setSpaceRole(SpaceRoleEnum.ADMIN.getValue());
+                    spaceMemberRepository.save(creator);
                 }
                 return space.getId();
             });
